@@ -5,12 +5,15 @@ export async function join(
   id: string,
   lat: number,
   lng: number,
-): Promise<void> {
-  await fetch("/api/join", {
+): Promise<{ lat: number; lng: number }> {
+  const res = await fetch("/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, lat, lng }),
   });
+  if (!res.ok) throw new Error(`join failed: ${res.status}`);
+  const data = (await res.json()) as { ok: boolean; lat: number; lng: number };
+  return { lat: data.lat, lng: data.lng };
 }
 
 export async function poll(id: string): Promise<PollResponse> {
@@ -27,11 +30,12 @@ export async function sendSignal(
   type: SignalType,
   payload?: string,
 ): Promise<void> {
-  await fetch("/api/signal", {
+  const res = await fetch("/api/signal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fromId, toId, type, payload }),
   });
+  if (!res.ok) throw new Error(`signal failed: ${res.status}`);
 }
 
 // Fire-and-forget leave that survives the tab closing.
