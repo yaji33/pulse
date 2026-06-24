@@ -7,7 +7,7 @@ import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
 import OnlineIndicator from "./components/OnlineIndicator";
-import { join, leave, poll, sendSignal } from "@/lib/api";
+import { ApiError, join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
 import { type PeerDot, type SignalMsg } from "@/lib/types";
@@ -25,6 +25,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionId] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -285,7 +286,17 @@ export default function Home() {
         if (!active) return;
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
-      } catch {}
+      } catch (err) {
+        if (!active) return;
+        // 401 means the session token expired or is invalid — the session is
+        // over. Anything else (429 throttle, network, 5xx) is transient: retry.
+        if (err instanceof ApiError && err.status === 401) {
+          active = false;
+          teardown();
+          setSessionEnded(true);
+          return;
+        }
+      }
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
     tick();
@@ -307,10 +318,40 @@ export default function Home() {
     };
   }, [sessionId, phase]);
 
+  useEffect(() => {
+    if (!sessionEnded) return;
+    const t = setTimeout(() => {
+      setSessionEnded(false);
+      setPeers([]);
+      setMyLocation(null);
+      setPhase("gate");
+    }, 2800);
+    return () => clearTimeout(t);
+  }, [sessionEnded]);
+
   async function handleReady(lat: number, lng: number) {
     const offset = await join(sessionId, lat, lng);
     setMyLocation(offset);
     setPhase("live");
+  }
+
+  if (sessionEnded) {
+    return (
+      <main className="fixed inset-0 flex flex-col items-center justify-center gap-3 bg-[#080808] px-6 text-center modal-in">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#ff3b3b]">
+          Signal lost
+        </span>
+        <h1
+          className="text-[#f0f0f0]"
+          style={{ fontFamily: "var(--font-syne)", fontWeight: 700, fontSize: "clamp(28px, 4vw, 44px)" }}
+        >
+          Your session ended
+        </h1>
+        <p className="font-mono text-[11px] tracking-[0.06em] text-[#5a5a5a]">
+          Returning you to the start…
+        </p>
+      </main>
+    );
   }
 
   if (phase === "gate") {

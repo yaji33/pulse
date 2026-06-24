@@ -1,6 +1,17 @@
 // Client-side helpers for talking to the coordination API.
 import type { PollResponse, SignalType } from "@/lib/types";
 
+// Carries the HTTP status so callers can tell an expired session (401) apart
+// from transient failures (429, network, 5xx).
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 // Session token from /api/join, attached automatically to later requests.
 let sessionToken: string | null = null;
 
@@ -18,7 +29,7 @@ export async function join(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, lat, lng }),
   });
-  if (!res.ok) throw new Error(`join failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, `join failed: ${res.status}`);
   const data = (await res.json()) as {
     ok: boolean;
     lat: number;
@@ -34,7 +45,7 @@ export async function poll(id: string): Promise<PollResponse> {
     cache: "no-store",
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(`poll failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, `poll failed: ${res.status}`);
   return res.json();
 }
 
@@ -49,7 +60,7 @@ export async function sendSignal(
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ fromId, toId, type, payload }),
   });
-  if (!res.ok) throw new Error(`signal failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, `signal failed: ${res.status}`);
 }
 
 // Fire-and-forget leave that survives the tab closing. sendBeacon can't set
