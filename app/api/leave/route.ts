@@ -1,23 +1,30 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isValidSessionId, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/leave — body { id }. Removes the presence row and any pending
-// signals to/from this user. Called via navigator.sendBeacon on tab close, so
-// the body may arrive as text — parse defensively.
+// POST /api/leave — body { id, token }. Removes the presence row and pending
+// signals. Called via sendBeacon (can't set headers), so the token rides in the
+// body, which may arrive as text — parse defensively.
 export async function POST(request: NextRequest) {
   let id: string | undefined;
+  let token: string | undefined;
   try {
     const text = await request.text();
-    id = text ? (JSON.parse(text)?.id as string | undefined) : undefined;
+    const parsed = text ? JSON.parse(text) : {};
+    id = parsed?.id as string | undefined;
+    token = parsed?.token as string | undefined;
   } catch {
     id = undefined;
   }
 
-  if (typeof id !== "string" || !id) {
+  if (!isValidSessionId(id)) {
     return Response.json({ error: "invalid id" }, { status: 400 });
+  }
+  if (!verifyToken(id, token)) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   // Independent cleanup deletes — no atomicity needed (and interactive

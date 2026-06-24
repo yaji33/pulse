@@ -1,13 +1,13 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
+import { isValidSessionId, signToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/join — body { id, lat, lng } (raw coords).
-// Applies a 1–3 km privacy offset and upserts the presence row. Raw
-// coordinates are never stored.
+// POST /api/join — body { id, lat, lng }. Applies a 1–3 km privacy offset
+// (raw coords are never stored) and returns a session token for later requests.
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
   const { id, lat, lng } = (body ?? {}) as Record<string, unknown>;
 
-  if (typeof id !== "string" || id.length < 8 || id.length > 64) {
+  if (!isValidSessionId(id)) {
     return Response.json({ error: "invalid id" }, { status: 400 });
   }
   if (!isValidLatLng(lat, lng)) {
@@ -43,5 +43,10 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return Response.json({ ok: true, lat: offset.lat, lng: offset.lng });
+  return Response.json({
+    ok: true,
+    lat: offset.lat,
+    lng: offset.lng,
+    token: signToken(id),
+  });
 }

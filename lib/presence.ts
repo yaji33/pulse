@@ -8,3 +8,7 @@ export const SIGNAL_TTL_MS = 60_000;
 
 // Client poll interval. Kept here so client + server reason about the same cadence.
 export const POLL_INTERVAL_MS = 1_500;
+
+// Minimum gap the server accepts between polls from one session. Legitimate
+// clients poll every POLL_INTERVAL_MS, so anything well below this is abuse.
+export const MIN_POLL_INTERVAL_MS = 500;

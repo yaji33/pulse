@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
+import { STALE_MS, SIGNAL_TTL_MS, MIN_POLL_INTERVAL_MS } from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
+import { getBearerToken, isValidSessionId, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,13 +14,26 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const id = params.get("id");
 
-  if (!id) {
-    return Response.json({ error: "missing id" }, { status: 400 });
+  if (!isValidSessionId(id)) {
+    return Response.json({ error: "invalid id" }, { status: 400 });
+  }
+  if (!verifyToken(id, getBearerToken(request))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
   const signalCutoff = new Date(now - SIGNAL_TTL_MS);
+
+  // Per-session throttle. Clients poll every 1.5s, so anything well under that
+  // is abuse (per-IP limiting would need a shared store like Redis — see NOTES).
+  const existing = await prisma.presence.findUnique({
+    where: { id },
+    select: { lastSeen: true },
+  });
+  if (existing && now - existing.lastSeen.getTime() < MIN_POLL_INTERVAL_MS) {
+    return Response.json({ error: "slow down" }, { status: 429 });
+  }
 
   // 1) Heartbeat — refresh lastSeen for the caller only.
   await prisma.presence.updateMany({

@@ -1,9 +1,13 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
+import { getBearerToken, isValidSessionId, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// SDP/ICE payloads must be JSON; request/accept/decline/end carry none.
+const PAYLOAD_TYPES: SignalType[] = ["offer", "answer", "ice"];
 
 const VALID_TYPES: SignalType[] = [
   "request",
@@ -33,8 +37,12 @@ export async function POST(request: NextRequest) {
     unknown
   >;
 
-  if (typeof fromId !== "string" || typeof toId !== "string") {
+  if (!isValidSessionId(fromId) || !isValidSessionId(toId)) {
     return Response.json({ error: "invalid ids" }, { status: 400 });
+  }
+  // Caller must own the id it sends from.
+  if (!verifyToken(fromId, getBearerToken(request))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   if (typeof type !== "string" || !VALID_TYPES.includes(type as SignalType)) {
     return Response.json({ error: "invalid type" }, { status: 400 });
@@ -49,6 +57,19 @@ export async function POST(request: NextRequest) {
 
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
+
+  // SDP/ICE payloads must parse as a JSON object.
+  if (PAYLOAD_TYPES.includes(signalType)) {
+    if (!payloadStr) {
+      return Response.json({ error: "missing payload" }, { status: 400 });
+    }
+    try {
+      const parsed = JSON.parse(payloadStr);
+      if (typeof parsed !== "object" || parsed === null) throw new Error();
+    } catch {
+      return Response.json({ error: "invalid payload" }, { status: 400 });
+    }
+  }
 
   // Enforce "one active connection at a time": if the target is already busy,
   // auto-decline the request instead of delivering it.
