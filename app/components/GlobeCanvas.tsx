@@ -7,6 +7,13 @@ const TWO_PI = Math.PI * 2;
 const CLUSTER_POINTS = 200;
 const CLUSTER_CONE = 0.44; // ~25 degrees
 
+
+const REPEL_RADIUS = 120;
+const WAKE_RADIUS = 240;
+const SPRING = 0.055;
+const DAMPING = 0.78;
+const MAX_DISPLACE = 80;
+
 type Particle = {
   a: number; // azimuth
   p: number; // polar angle from +Y
@@ -15,10 +22,14 @@ type Particle = {
   opacityMod: number;
   driftA: number;
   driftP: number;
+  
+  dx: number;
+  dy: number;
+  vx: number;
+  vy: number;
 };
 
 function makeParticle(a: number, p: number): Particle {
-  // Push each point slightly off the perfect sphere so the shell isn't crisp.
   const noiseFactor = 0.04 + Math.random() * 0.08;
   return {
     a,
@@ -28,6 +39,10 @@ function makeParticle(a: number, p: number): Particle {
     opacityMod: 0.4 + Math.random() * 0.6,
     driftA: (Math.random() - 0.5) * 0.0004,
     driftP: (Math.random() - 0.5) * 0.0003,
+    dx: 0,
+    dy: 0,
+    vx: 0,
+    vy: 0,
   };
 }
 
@@ -36,13 +51,12 @@ function buildParticles(): Particle[] {
   const particles: Particle[] = [];
 
   for (let i = 0; i < N; i++) {
-    if (Math.random() < 0.18) continue; 
+    if (Math.random() < 0.18) continue; // drop ~18% for sparse gaps
     const y = 1 - (i / (N - 1)) * 2;
     particles.push(makeParticle(goldenAngle * i, Math.acos(y)));
   }
 
-  
-  const centers = 1 + Math.floor(Math.random() * 2); 
+  const centers = 1 + Math.floor(Math.random() * 2);
   for (let c = 0; c <= centers; c++) {
     const ca = Math.random() * TWO_PI;
     const cp = Math.acos(1 - Math.random() * 2);
@@ -60,8 +74,13 @@ function buildParticles(): Particle[] {
   return particles;
 }
 
+function clamp(v: number): number {
+  return v < -MAX_DISPLACE ? -MAX_DISPLACE : v > MAX_DISPLACE ? MAX_DISPLACE : v;
+}
+
 export default function GlobeCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mouseRef = useRef({ x: 0, y: 0, active: false });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -91,18 +110,33 @@ export default function GlobeCanvas() {
     const ro = new ResizeObserver(resize);
     ro.observe(el);
 
+    function onMove(e: MouseEvent) {
+      const rect = el.getBoundingClientRect();
+      mouseRef.current.x = e.clientX - rect.left;
+      mouseRef.current.y = e.clientY - rect.top;
+      mouseRef.current.active = true;
+    }
+    function onLeave() {
+      // Leave displacement intact — the spring snaps dots back on its own.
+      mouseRef.current.active = false;
+    }
+    if (!reduce) {
+      el.addEventListener("mousemove", onMove);
+      el.addEventListener("mouseleave", onLeave);
+    }
+
     function draw(now: number) {
       const cx = size / 2;
       const cy = size / 2;
-      // Subliminal breathing: 98.8%–101.2% scale.
       const breathe = 1 + Math.sin(now * 0.0004) * 0.012;
       const R = size * 0.48 * breathe;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
+      const mouse = mouseRef.current;
 
       ctx.clearRect(0, 0, size, size);
 
-      const frame: { sx: number; sy: number; z: number; size: number; op: number }[] =
+      const frame: { x: number; y: number; z: number; size: number; op: number }[] =
         [];
 
       for (const pt of particles) {
@@ -115,41 +149,95 @@ export default function GlobeCanvas() {
         const uy = Math.cos(pt.p);
         const uz = sp * Math.sin(pt.a);
 
-        // Rotate around Y (unit space keeps depth normalized).
         const ruz = ux * sin + uz * cos;
         const rux = ux * cos - uz * sin;
 
         const scl = R * pt.rFactor;
-        const rx = rux * scl;
-        const ry = uy * scl;
-        const depth = (ruz + 1) / 2; // 0 far .. 1 near
+        const ox = cx + rux * scl;
+        const oy = cy + uy * scl;
+        const depth = (ruz + 1) / 2;
+
+        // Spring-damper physics in screen space.
+        let dist = Infinity;
+        let dirx = 0;
+        let diry = 0;
+        if (mouse.active) {
+          dirx = ox - mouse.x;
+          diry = oy - mouse.y;
+          dist = Math.hypot(dirx, diry);
+        }
+        const nearby = mouse.active && dist < WAKE_RADIUS;
+        const atRest =
+          !nearby &&
+          Math.abs(pt.dx) < 0.05 &&
+          Math.abs(pt.dy) < 0.05 &&
+          Math.abs(pt.vx) < 0.05 &&
+          Math.abs(pt.vy) < 0.05;
+
+        let drawX = ox;
+        let drawY = oy;
+        if (!atRest) {
+          if (mouse.active && dist > 0) {
+            if (dist < REPEL_RADIUS) {
+              // Quadratic falloff repulsion — dots flee the cursor.
+              const strength = 1 - dist / REPEL_RADIUS;
+              const force = strength * strength * 9;
+              pt.vx += (dirx / dist) * force;
+              pt.vy += (diry / dist) * force;
+            } else if (dist < WAKE_RADIUS) {
+              // Gentle wake just outside: a slight pull toward the cursor.
+              const wake = (1 - (dist - REPEL_RADIUS) / (WAKE_RADIUS - REPEL_RADIUS)) * 0.4;
+              pt.vx -= (dirx / dist) * wake;
+              pt.vy -= (diry / dist) * wake;
+            }
+          }
+          // Spring back toward home, then damp.
+          pt.vx += -pt.dx * SPRING;
+          pt.vy += -pt.dy * SPRING;
+          pt.vx *= DAMPING;
+          pt.vy *= DAMPING;
+          pt.dx = clamp(pt.dx + pt.vx);
+          pt.dy = clamp(pt.dy + pt.vy);
+          drawX = ox + pt.dx;
+          drawY = oy + pt.dy;
+        }
 
         let dotRadius = pt.baseSize * (0.5 + depth * 0.9);
         let opacity = (0.08 + depth * 0.55) * pt.opacityMod;
-
-        // Edge densification: brighten + enlarge dots near the silhouette.
-        const edgeDist = R - Math.hypot(rx, ry);
+        const edgeDist = R - Math.hypot(rux * scl, uy * scl);
         if (edgeDist < 0.15 * R) {
           opacity *= 1.4;
           dotRadius *= 1.2;
         }
 
         frame.push({
-          sx: cx + rx,
-          sy: cy + ry,
-          z: ruz,
+          x: drawX,
+          y: drawY,
+          z: ruz, // draw order from 3D home depth
           size: dotRadius,
           op: opacity > 1 ? 1 : opacity,
         });
       }
 
-      // Near-side dots draw on top of far-side ones.
       frame.sort((m, n) => m.z - n.z);
 
       for (const d of frame) {
         ctx.beginPath();
-        ctx.arc(d.sx, d.sy, d.size, 0, TWO_PI);
+        ctx.arc(d.x, d.y, d.size, 0, TWO_PI);
         ctx.fillStyle = `rgba(255,255,255,${d.op})`;
+        ctx.fill();
+      }
+
+      // Custom cursor — a faint ring with a bright center.
+      if (mouse.active) {
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 18, 0, TWO_PI);
+        ctx.strokeStyle = "rgba(255,255,255,0.12)";
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 1.5, 0, TWO_PI);
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
         ctx.fill();
       }
     }
@@ -168,6 +256,8 @@ export default function GlobeCanvas() {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
     };
   }, []);
 
@@ -175,7 +265,7 @@ export default function GlobeCanvas() {
     <canvas
       ref={canvasRef}
       className="globe-fade"
-      style={{ width: "100%", height: "100%" }}
+      style={{ width: "100%", height: "100%", cursor: "none" }}
     />
   );
 }
