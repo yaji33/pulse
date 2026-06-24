@@ -6,6 +6,7 @@ import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
+import OnlineIndicator from "./components/OnlineIndicator";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
@@ -58,7 +59,10 @@ export default function Home() {
   }
 
   function addMessage(mine: boolean, text: string) {
-    setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
+    setMessages((prev) => [
+      ...prev,
+      { id: msgId.current++, mine, text, at: Date.now() },
+    ]);
   }
 
   function teardown(message?: string) {
@@ -316,26 +320,33 @@ export default function Home() {
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
 
   return (
-    <main className="fixed inset-0 overflow-hidden">
-      <WorldMap
-        peers={peers}
-        me={myLocation}
-        onPeerClick={requestConnection}
-        canConnect={conn.kind === "idle"}
-      />
+    <main className="fixed inset-0 overflow-hidden bg-[#080808]">
+      <div
+        className="absolute inset-y-0 left-0 transition-[right] duration-200"
+        style={{ right: inChat ? 360 : 0 }}
+      >
+        <WorldMap
+          peers={peers}
+          me={myLocation}
+          onPeerClick={requestConnection}
+          canConnect={conn.kind === "idle"}
+        />
+      </div>
+
+      <OnlineIndicator count={peers.length} />
 
       {notice && (
-        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 border border-[#1f1f1f] bg-[#111111]/85 px-4 py-2 font-mono text-[11px] tracking-[0.06em] text-[#5a5a5a] backdrop-blur-md">
           {notice}
         </div>
       )}
 
       {conn.kind === "requesting" && (
-        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          <span>Requesting connection…</span>
+        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-4 border border-[#1f1f1f] bg-[#111111]/85 px-4 py-2 font-mono text-[11px] tracking-[0.06em] text-[#5a5a5a] backdrop-blur-md">
+          <span className="blink-cursor">REQUESTING CONNECTION</span>
           <button
             onClick={cancelRequest}
-            className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
+            className="border border-[#2a2a2a] px-3 py-1 text-[10px] uppercase tracking-[0.06em] text-[#5a5a5a] transition-colors hover:border-[#f0f0f0] hover:text-[#f0f0f0]"
           >
             Cancel
           </button>
@@ -367,8 +378,8 @@ export default function Home() {
       )}
 
       {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          Waiting for stranger to accept video…
+        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 border border-[#1f1f1f] bg-[#111111]/85 px-4 py-2 font-mono text-[11px] tracking-[0.06em] text-[#5a5a5a] backdrop-blur-md">
+          WAITING FOR STRANGER TO ACCEPT VIDEO
         </div>
       )}
 

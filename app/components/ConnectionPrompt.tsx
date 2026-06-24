@@ -1,7 +1,5 @@
 "use client";
 
-// Reusable centered prompt for "someone wants to connect" and
-// "someone wants to start video".
 export default function ConnectionPrompt({
   title,
   subtitle,
@@ -18,20 +16,53 @@ export default function ConnectionPrompt({
   onDecline: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6">
-      <div className="w-full max-w-xs rounded-2xl bg-zinc-900 p-6 text-center text-zinc-100 shadow-xl">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-zinc-400">{subtitle}</p>}
-        <div className="mt-5 flex gap-3">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-6">
+      <div className="modal-in w-[380px] max-w-full border border-[#1f1f1f] bg-[#111111] px-12 py-10 text-center">
+        <svg
+          width="32"
+          height="20"
+          viewBox="0 0 32 20"
+          fill="none"
+          className="mx-auto"
+          aria-hidden="true"
+        >
+          <path
+            className="arc-draw"
+            d="M6 16 A 12 12 0 0 1 26 16"
+            stroke="#ff3b3b"
+            strokeOpacity="0.6"
+            strokeWidth="1.5"
+          />
+          <path
+            className="arc-draw"
+            d="M1 16 A 18 18 0 0 1 31 16"
+            stroke="#ff3b3b"
+            strokeOpacity="0.3"
+            strokeWidth="1.5"
+          />
+        </svg>
+
+        <h2
+          className="mt-4 text-[18px] text-[#f0f0f0]"
+          style={{ fontFamily: "var(--font-syne)", fontWeight: 600 }}
+        >
+          {title}
+        </h2>
+
+        <p className="mt-2 font-mono text-[10px] tracking-[0.08em] text-[#5a5a5a]">
+          {subtitle ?? "Anonymous · Peer-to-peer · No recording"}
+        </p>
+
+        <div className="mt-8 flex justify-center gap-3">
           <button
             onClick={onDecline}
-            className="flex-1 rounded-full border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:border-zinc-500"
+            className="border border-[#2a2a2a] bg-transparent px-7 py-[11px] text-[13px] font-medium uppercase tracking-[0.04em] text-[#5a5a5a] transition-colors duration-[180ms] hover:border-[#f0f0f0] hover:text-[#f0f0f0]"
           >
             {declineLabel}
           </button>
           <button
             onClick={onAccept}
-            className="flex-1 rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-300"
+            className="border border-[#f0f0f0]/50 bg-transparent px-7 py-[11px] text-[13px] font-medium uppercase tracking-[0.04em] text-[#f0f0f0] transition-colors duration-[180ms] hover:bg-[#f0f0f0] hover:text-[#080808]"
           >
             {acceptLabel}
           </button>

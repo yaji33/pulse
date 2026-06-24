@@ -4,16 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
+import { createMeMarkerEl, createStrangerMarkerEl } from "./markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "pk.eyJ1IjoicHVsc2UtbWFwIiwiYSI6ImNrMDBkZW1vMDAwMDAwMDAifQ.AAAAAAAAAAAAAAAAAAAAAA";
-
-function dotColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  }
-  return `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
-}
 
 export default function WorldMap({
   peers,
@@ -46,6 +39,7 @@ export default function WorldMap({
     if (!TOKEN || !containerRef.current) return;
     let cancelled = false;
     const markers = markersRef.current;
+    const container = containerRef.current;
 
     (async () => {
       const mapboxgl = (await import("mapbox-gl")).default;
@@ -54,7 +48,6 @@ export default function WorldMap({
       const map = new mapboxgl.Map({
         container: containerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
-        // Open centered on the user if we know where they are, else world view.
         center: me ? [me.lng, me.lat] : [0, 20],
         zoom: me ? 4 : 1.4,
         attributionControl: true,
@@ -65,8 +58,12 @@ export default function WorldMap({
       mapRef.current = map;
     })();
 
+    const ro = new ResizeObserver(() => mapRef.current?.resize());
+    ro.observe(container);
+
     return () => {
       cancelled = true;
+      ro.disconnect();
       markers.forEach((m) => m.remove());
       markers.clear();
       meMarkerRef.current?.remove();
@@ -79,7 +76,7 @@ export default function WorldMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Show / move the user's own "you are here" pin.
+  // Show / move the user's own "Me" marker.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !me) return;
@@ -89,12 +86,7 @@ export default function WorldMap({
       const mapboxgl = (await import("mapbox-gl")).default;
       if (cancelled) return;
       if (!meMarkerRef.current) {
-        const el = document.createElement("div");
-        el.className = "pulse-me";
-        el.title = "You are here";
-        el.innerHTML = `<span class="pulse-me-label">Me</span>📍`;
-        // anchor "bottom" → the pin's tip sits on the exact coordinate.
-        meMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        meMarkerRef.current = new mapboxgl.Marker({ element: createMeMarkerEl() })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
       } else {
@@ -107,7 +99,7 @@ export default function WorldMap({
     };
   }, [me, ready]);
 
-  // Reconcile markers whenever the peer list changes (or the map becomes ready).
+  // Reconcile stranger markers whenever the peer list changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -123,10 +115,7 @@ export default function WorldMap({
         seen.add(peer.id);
         let marker = markers.get(peer.id);
         if (!marker) {
-          const el = document.createElement("button");
-          el.className = "pulse-dot";
-          el.style.background = dotColor(peer.id);
-          el.title = "Tap to connect";
+          const el = createStrangerMarkerEl();
           el.addEventListener("click", (e) => {
             e.stopPropagation();
             if (canConnectRef.current) onPeerClickRef.current(peer.id);
@@ -136,10 +125,11 @@ export default function WorldMap({
             .addTo(map);
           markers.set(peer.id, marker);
         }
-        marker.getElement().style.opacity = peer.busy ? "0.35" : "1";
+        // Busy peers dim out; inline style only when busy so CSS hover still
+        // works for connectable dots.
+        marker.getElement().style.opacity = peer.busy ? "0.3" : "";
       }
 
-      // Drop markers for peers that went offline / got filtered out.
       for (const [id, marker] of markers) {
         if (!seen.has(id)) {
           marker.remove();
@@ -155,22 +145,25 @@ export default function WorldMap({
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="h-full w-full bg-zinc-900" />
+      <div ref={containerRef} className="h-full w-full bg-[#080808]" />
+
+      <div
+        className="pointer-events-none absolute inset-0 z-[1]"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 50%, rgba(8,8,8,0.5) 100%)",
+        }}
+      />
 
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-          <p className="max-w-md rounded-lg bg-zinc-800 p-4 text-sm text-zinc-200">
+          <p className="max-w-md border border-[#1f1f1f] bg-[#111111] p-4 text-sm text-[#5a5a5a]">
             Set{" "}
-            <code className="text-emerald-400">NEXT_PUBLIC_MAPBOX_TOKEN</code> in{" "}
+            <code className="text-[#f0f0f0]">NEXT_PUBLIC_MAPBOX_TOKEN</code> in{" "}
             <code>.env</code> to load the map.
           </p>
         </div>
       )}
-
-      {/* Online count */}
-      <div className="absolute bottom-4 left-4 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur">
-        {peers.length} online
-      </div>
     </div>
   );
 }
