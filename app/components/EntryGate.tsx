@@ -48,7 +48,7 @@ export default function EntryGate({
         Pulse · Anonymous Presence Network
       </span>
 
-      <div className="relative z-10 flex min-h-screen flex-col justify-center px-8 text-center md:max-w-[46vw] md:pl-20 md:text-left">
+      <div className="relative z-10 flex min-h-screen flex-col justify-center px-8 text-center md:max-w-[52vw] md:pl-32 md:text-left">
         <h1
           className="fade-up text-[#f0f0f0]"
           style={{
