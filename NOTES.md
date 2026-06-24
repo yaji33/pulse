@@ -28,6 +28,10 @@ The app uses HTTP polling (every 1.5s) as a signaling relay for WebRTC. Presence
 
 `join()` and `sendSignal()` in `lib/api.ts` did not check `res.ok`. A failed join would silently move the app into live mode with no presence row in the database. Fixed by throwing on non-OK responses.
 
+**ICE candidates dropped on intermittent connections**
+
+This one only showed up sometimes: two users would connect, but both stayed stuck on "Connecting..." and could only end the call. In `lib/webrtc.ts`, `handleSignal` flushed the queued ICE candidates before calling `setRemoteDescription`. The browser does not allow `addIceCandidate` until a remote description is set, so when candidates arrived before the offer or answer in a poll cycle, they were queued, then flushed too early, rejected, and silently lost to an empty `catch`. With no usable candidates the data channel never opened. It was intermittent because everything is delivered over 1.5s polls, so whether ICE or the SDP arrived first changed run to run. Fixed by setting the remote description first, then flushing the queue, so candidates apply no matter which arrives first.
+
 ### Setup issues
 
 **`.env` file encoding**
