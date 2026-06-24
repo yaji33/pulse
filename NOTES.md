@@ -37,3 +37,39 @@ The app uses HTTP polling (every 1.5s) as a signaling relay for WebRTC. Presence
 **Prisma client not generated**
 
 `npx prisma db push` syncs the schema to the database but does not generate the Prisma client. The app threw a missing module error on first run. `npx prisma generate` must be run once before `npm run dev`. The `build` script already handles this for production.
+
+## Phase 2 — Make it Good
+
+The starter UI worked but felt like a default template: emerald buttons, white cards, rounded pills, a generic map pin. I wanted Pulse to feel like a threshold, not a product page. The idea I kept coming back to is that the app connects strangers across the world, so the design should feel quiet, vast, and a little eerie, like looking down at Earth at night and watching for signals.
+
+### Design system
+
+I set one strict palette and stuck to it everywhere: near-black background, dark surfaces, faint borders, off-white text, muted grey for secondary text, and a single red accent used only for live signals. No gradients, no glows, no extra colors. The discipline is the point. When red only ever means "a person," it carries weight.
+
+Type is three families with clear jobs: Syne for headlines (geometric and cold), Inter for body and UI, and JetBrains Mono for the small technical labels and meta lines. Buttons are all ghost or outline style that invert to white on hover, never filled by default.
+
+### Landing page
+
+The entry gate is the first impression, so I spent the most time here. It is a single full-height view with the content on the left and a globe bleeding off the right edge, so you feel like you are near the planet rather than looking at a diagram.
+
+The globe went through a few iterations on purpose. I tried an SVG wireframe, then a canvas wireframe with real 3D math and depth fading, then the `cobe` library for a dotted-continent look. I landed on a pure canvas particle sphere because it felt the most alive and kept the dependency count at zero. It is 2800 points placed with a Fibonacci distribution, then deliberately roughed up: random displacement off the surface, per-particle size and opacity, density clusters, edge densification, and a slow breathing scale. A perfect sphere reads as a math diagram, so the imperfection is what makes it feel like a real data cloud.
+
+I also added cursor physics. Hovering the globe repels nearby particles with a spring-damper return, with a softer wake just outside the repulsion radius. It rewards curiosity without being a gimmick, and it reinforces the idea that the sphere is responsive and alive.
+
+### Application view
+
+I carried the same system into the live app.
+
+- The map keeps the dark Mapbox style with a subtle vignette so the center feels like a focused view.
+- The "Me" marker is a red dot with a pulsing sonar ring and a small mono label, replacing the default emoji pin. Strangers are quiet white dots that brighten on hover, so the map reads clearly and the eye is drawn to people, not chrome.
+- The presence count became a fixed pill with the same pulsing red dot from the globe, tying the two views together.
+- The connection request modal is a sharp-cornered dark card with two broadcast arcs that draw themselves in, a Syne headline, and a one-line reassurance that the connection is anonymous and peer-to-peer.
+- The chat panel is a right drawer with a clear header, a blinking "connecting" status, and a deliberately understated message style: their messages get a left rule, mine are quieter and right-aligned. No chat bubbles, no fills. The only red touch is the text caret. The map shrinks to make room for the drawer instead of being covered.
+
+### Motion and accessibility
+
+Motion is used sparingly: staggered fade-ins on load, the globe rotation and breathing, the sonar pulses, and short transitions on hover and mount. Every animation is wrapped so that `prefers-reduced-motion` disables it while keeping the layout and globe visible.
+
+### Trade-offs
+
+I chose a pure canvas globe over a library to keep things lightweight and fully under my control, at the cost of writing more code. I kept the existing component file names rather than renaming them, so the diff stays focused on visuals and the git history is easy to follow.
