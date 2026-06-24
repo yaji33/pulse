@@ -44,7 +44,12 @@ This one only showed up sometimes: two users would connect, but both stayed stuc
 
 ## Phase 2 — Make it Good
 
-The starter UI worked but felt like a default template: emerald buttons, white cards, rounded pills, a generic map pin. I wanted Pulse to feel like a threshold, not a product page. The idea I kept coming back to is that the app connects strangers across the world, so the design should feel quiet, vast, and a little eerie, like looking down at Earth at night and watching for signals.
+The starter UI worked but felt like a default template: emerald buttons, white cards, rounded pills, a genfeat(security): authenticate and validate all coordination API routes
+
+- add HMAC session token signed on join and verified on poll, signal, and leave
+- validate session ids as UUID v4 and require SDP/ICE payloads to be JSON
+- throttle polling per session to reject requests faster than 500ms
+- attach the session token automatically from the client api helperseric map pin. I wanted Pulse to feel like a threshold, not a product page. The idea I kept coming back to is that the app connects strangers across the world, so the design should feel quiet, vast, and a little eerie, like looking down at Earth at night and watching for signals.
 
 ### Design system
 
@@ -77,3 +82,35 @@ Motion is used sparingly: staggered fade-ins on load, the globe rotation and bre
 ### Trade-offs
 
 I chose a pure canvas globe over a library to keep things lightweight and fully under my control, at the cost of writing more code. I kept the existing component file names rather than renaming them, so the diff stays focused on visuals and the git history is easy to follow.
+
+## Phase 3 — Make it Secure
+
+The starting point was an API that trusted the client completely. Every route accepted whatever `id` the request carried, with no proof the caller owned it, no format checks, and no rate limits. Because all coordination state lives in shared Postgres rows keyed by `id`, and ids are visible to everyone (each peer shows up in the `/api/poll` response), simply knowing an id was enough to act as that person. That was the gap I focused on.
+
+### Session tokens
+
+On `/api/join` the server now issues a token bound to the caller's session id: an HMAC-SHA256 of `id + expiry`, signed with a server-only `SESSION_SECRET`, formatted as `<expiry>.<signature>`. The client stores it and attaches it to every later request (`Authorization: Bearer` for poll and signal, in the body for leave since `sendBeacon` can't set headers). Each route recomputes the HMAC and compares it with a timing-safe check, so the comparison can't leak through response timing. The token expires after 24 hours.
+
+The key property: ids are public, but the token is not, and it can't be produced without the secret. So a client can prove it owns the id it claims without the server storing any sessions, which keeps the app stateless and anonymous.
+
+### Input validation
+
+Session ids must now match a strict UUID v4 pattern instead of the old "between 8 and 64 characters" check. SDP and ICE payloads (`offer`, `answer`, `ice`) must parse as a JSON object or the request is rejected. The server only ever relays well-formed signaling data, and junk ids can't create stray presence rows.
+
+### Rate limiting
+
+`/api/poll` runs several queries per call and clients poll every 1.5 seconds, so I added a per-session throttle: if the same id polls again within 500ms, the server returns `429` before doing any work. Legitimate clients never hit it.
+
+This is a per-session limit, not per-IP. A proper IP-based limiter in a serverless setup needs a shared store like Redis or Upstash, which felt out of scope for this assessment. I noted the gap here rather than pull in that infrastructure.
+
+### What this looks like in practice
+
+Two strangers are mid-conversation. A third person opens the app, polls, and sees both of their ids in the peer list. Before Phase 3, they could POST `{ fromId: <partner>, toId: <you>, type: "end" }` to `/api/signal`, and the server would relay it and clear both busy flags. The call would drop and neither person did it. The same trick worked for forging an `offer` to hijack the handshake, or hitting `/api/leave` with someone else's id to remove their dot from the map.
+
+After Phase 3, all of those fail with `401`. The attacker sees the ids but can't produce a valid token for them, so the server never relays the forged signal. Identity is tied to a secret the client can't guess, not to an id anyone can read.
+
+### Trade-offs
+
+- The token is deterministic per id with an expiry and no server-side session store. That fits the ephemeral, no-accounts design, but it does mean a leaked token stays valid until it expires. For transient anonymous sessions that's an acceptable balance.
+- Rate limiting is per session, not per IP (see above).
+- `SESSION_SECRET` is now required. It is in `.env.example` as a placeholder and must be set in `.env` locally and in the Vercel project settings for the deployment to work.
