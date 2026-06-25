@@ -44,12 +44,7 @@ This one only showed up sometimes: two users would connect, but both stayed stuc
 
 ## Phase 2 — Make it Good
 
-The starter UI worked but felt like a default template: emerald buttons, white cards, rounded pills, a genfeat(security): authenticate and validate all coordination API routes
-
-- add HMAC session token signed on join and verified on poll, signal, and leave
-- validate session ids as UUID v4 and require SDP/ICE payloads to be JSON
-- throttle polling per session to reject requests faster than 500ms
-- attach the session token automatically from the client api helperseric map pin. I wanted Pulse to feel like a threshold, not a product page. The idea I kept coming back to is that the app connects strangers across the world, so the design should feel quiet, vast, and a little eerie, like looking down at Earth at night and watching for signals.
+The starter UI worked but felt like a default template: emerald buttons, white cards, rounded pills, a generic map pin. I wanted Pulse to feel like a threshold, not a product page. The idea I kept coming back to is that the app connects strangers across the world, so the design should feel quiet, vast, and a little eerie, like looking down at Earth at night and watching for signals.
 
 ### Design system
 
@@ -114,3 +109,37 @@ After Phase 3, all of those fail with `401`. The attacker sees the ids but can't
 - The token is deterministic per id with an expiry and no server-side session store. That fits the ephemeral, no-accounts design, but it does mean a leaked token stays valid until it expires. For transient anonymous sessions that's an acceptable balance.
 - Rate limiting is per session, not per IP (see above).
 - `SESSION_SECRET` is now required. It is in `.env.example` as a placeholder and must be set in `.env` locally and in the Vercel project settings for the deployment to work.
+
+## Phase 4 — Make it Better
+
+Phase 4 asked for something original that makes Pulse feel more alive. I built two features that sit on the same idea: anonymous presence should give you just enough context to reach out, without identifying anyone.
+
+### Mood Signal
+
+Before entering the map, you can optionally pick how you feel right now: curious, can't sleep, need to talk, and so on. Skip is always there. The choice attaches to your dot for the session and disappears when you leave.
+
+The problem it targets is the first tap. A blank dot gives you no reason to connect with one stranger over another. A mood is the minimum viable human context: enough to feel real, not enough to identify someone. In the chat panel, the stranger's mood shows in the header so the opening message has something to respond to.
+
+Design choices:
+
+- Preset options only. No free text, so there is no moderation surface and no abuse vector.
+- Two invisible categories (warm and quiet) drive the marker aura: brightness and pulse speed, not color. The red accent still only means "a person."
+- Mood labels render as UI pills, not plain map text, so they read as intentional rather than Mapbox annotations.
+
+### Whispers
+
+Whispers are anonymous messages that linger on the map for six hours, then get reaped. They are not tied to a session after creation. A reviewer opening the deployed URL alone still sees messages left by earlier sessions, so the feature demos itself without a second user.
+
+I first rendered whispers as map markers. That broke down fast: multiple whispers from one person stacked on the same dot and the map got cluttered. I moved them into a global feed panel on the right. Each entry shows the message and how far away it was left (~12 km away). Distance is the only persistent hint about the sender. The map stays clean; the feed carries the liveliness.
+
+Each whisper gets its own privacy offset at write time, so they scatter instead of piling up and never pin the user's exact location. Text is sanitized, capped at 80 characters, and run through a basic profanity filter.
+
+### Connection lines
+
+When two users are in an active connection, a faint red dashed line draws between their dots on the map. Busy peers already dim; the line makes the link visible to everyone else watching the map.
+
+### Trade-offs
+
+- Mood shines when multiple people are online. Whispers cover the solo demo case.
+- Whisper rate limiting is client-side cooldown only. The whisper row has no session id by design, so server-side per-user throttling would need a different model.
+- Connection lines only show after accept, not during a pending request. That keeps the map honest about who is actually talking.
