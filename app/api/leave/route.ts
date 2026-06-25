@@ -29,6 +29,22 @@ export async function POST(request: NextRequest) {
 
   // Independent cleanup deletes — no atomicity needed (and interactive
   // transactions are unreliable over a PgBouncer pooler).
+  // Free any peer still linked to this session, then remove presence + signals.
+  const self = await prisma.presence.findUnique({
+    where: { id },
+    select: { connectedTo: true },
+  });
+  if (self?.connectedTo) {
+    await prisma.presence.updateMany({
+      where: { id: self.connectedTo },
+      data: { busy: false, connectedTo: null },
+    });
+  }
+  await prisma.presence.updateMany({
+    where: { connectedTo: id },
+    data: { busy: false, connectedTo: null },
+  });
+
   await prisma.signal.deleteMany({
     where: { OR: [{ toId: id }, { fromId: id }] },
   });

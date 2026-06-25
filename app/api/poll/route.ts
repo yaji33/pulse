@@ -1,6 +1,11 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { STALE_MS, SIGNAL_TTL_MS, MIN_POLL_INTERVAL_MS } from "@/lib/presence";
+import {
+  STALE_MS,
+  SIGNAL_TTL_MS,
+  MIN_POLL_INTERVAL_MS,
+  WHISPER_TTL_MS,
+} from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
 import { getBearerToken, isValidSessionId, verifyToken } from "@/lib/auth";
 
@@ -24,6 +29,7 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
   const signalCutoff = new Date(now - SIGNAL_TTL_MS);
+  const whisperCutoff = new Date(now - WHISPER_TTL_MS);
 
   // Per-session throttle. Clients poll every 1.5s, so anything well under that
   // is abuse (per-IP limiting would need a shared store like Redis — see NOTES).
@@ -41,10 +47,12 @@ export async function GET(request: NextRequest) {
     data: { lastSeen: new Date(now) },
   });
 
-  // 2) Reap stale presence rows and orphaned signals (independent deletes —
-  // no atomicity needed, and avoids transactions over a PgBouncer pooler).
+  // 2) Reap stale presence rows, orphaned signals, and expired whispers
+  // (independent deletes — no atomicity needed, and avoids transactions over a
+  // PgBouncer pooler).
   await prisma.presence.deleteMany({ where: { lastSeen: { lt: staleCutoff } } });
   await prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } });
+  await prisma.whisper.deleteMany({ where: { createdAt: { lt: whisperCutoff } } });
 
   // 3) Online peers, excluding self.
   const peers = await prisma.presence.findMany({
@@ -52,7 +60,7 @@ export async function GET(request: NextRequest) {
       id: { not: id },
       lastSeen: { gte: staleCutoff },
     },
-    select: { id: true, lat: true, lng: true, busy: true },
+    select: { id: true, lat: true, lng: true, busy: true, connectedTo: true, mood: true },
   });
 
   // 4) Drain this user's mailbox: read, then delete exactly what we read so a
@@ -67,12 +75,21 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // 5) Active whispers, oldest first (capped — the map should never be buried).
+  const whispers = await prisma.whisper.findMany({
+    where: { createdAt: { gte: whisperCutoff } },
+    orderBy: { createdAt: "desc" },
+    take: 60,
+  });
+
   const response: PollResponse = {
     peers: peers.map((p) => ({
       id: p.id,
       lat: p.lat,
       lng: p.lng,
       busy: p.busy,
+      connectedTo: p.connectedTo,
+      mood: p.mood,
     })),
     signals: inbox.map((s) => ({
       id: s.id,
@@ -81,6 +98,13 @@ export async function GET(request: NextRequest) {
       type: s.type as PollResponse["signals"][number]["type"],
       payload: s.payload,
       createdAt: s.createdAt.toISOString(),
+    })),
+    whispers: whispers.map((w) => ({
+      id: w.id,
+      lat: w.lat,
+      lng: w.lng,
+      text: w.text,
+      createdAt: w.createdAt.toISOString(),
     })),
   };
 

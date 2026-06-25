@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
 import { isValidSessionId, signToken } from "@/lib/auth";
+import { isValidMood } from "@/lib/moods";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "invalid body" }, { status: 400 });
   }
 
-  const { id, lat, lng } = (body ?? {}) as Record<string, unknown>;
+  const { id, lat, lng, mood } = (body ?? {}) as Record<string, unknown>;
 
   if (!isValidSessionId(id)) {
     return Response.json({ error: "invalid id" }, { status: 400 });
@@ -25,6 +26,8 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "invalid coordinates" }, { status: 400 });
   }
 
+  // Off-allowlist moods are silently dropped, never rejected.
+  const safeMood = isValidMood(mood) ? mood : null;
   const offset = applyPrivacyOffset(lat as number, lng as number);
 
   await prisma.presence.upsert({
@@ -33,12 +36,14 @@ export async function POST(request: NextRequest) {
       id,
       lat: offset.lat,
       lng: offset.lng,
+      mood: safeMood,
       busy: false,
       lastSeen: new Date(),
     },
     update: {
       lat: offset.lat,
       lng: offset.lng,
+      mood: safeMood,
       lastSeen: new Date(),
     },
   });
