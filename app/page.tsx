@@ -23,8 +23,6 @@ type Conn =
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
 const REQUEST_TIMEOUT_MS = 30_000;
-const WHISPER_PANEL_W = 320;
-const CHAT_PANEL_W = 360;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
@@ -40,6 +38,7 @@ export default function Home() {
     null,
   );
   const [myMood, setMyMood] = useState<string | null>(null);
+  const [whispersOpen, setWhispersOpen] = useState(false);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -346,6 +345,13 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [sessionEnded]);
 
+  const inChat =
+    conn.kind === "connecting" || conn.kind === "connected";
+
+  useEffect(() => {
+    if (inChat) setWhispersOpen(false);
+  }, [inChat]);
+
   async function handleReady(lat: number, lng: number, mood: string | null) {
     const offset = await join(sessionId, lat, lng, mood);
     setMyLocation(offset);
@@ -386,21 +392,23 @@ export default function Home() {
   }
 
   if (phase === "gate") {
-    return <EntryGate onReady={handleReady} />;
+    return (
+      <main className="fixed inset-0 overflow-x-hidden">
+        <EntryGate onReady={handleReady} />
+      </main>
+    );
   }
 
-  const inChat = conn.kind === "connecting" || conn.kind === "connected";
   const myPeerId =
     conn.kind === "connecting" || conn.kind === "connected"
       ? conn.peerId
       : null;
-  const sidePanel = inChat ? CHAT_PANEL_W : WHISPER_PANEL_W;
+  const mapRightClass = inChat ? "md:right-[360px]" : "md:right-[320px]";
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-[#080808]">
       <div
-        className="absolute inset-y-0 left-0 transition-[right] duration-200"
-        style={{ right: sidePanel }}
+        className={`absolute inset-y-0 left-0 right-0 transition-[right] duration-200 ${mapRightClass}`}
       >
         <WorldMap
           peers={peers}
@@ -415,11 +423,27 @@ export default function Home() {
       <OnlineIndicator count={peers.length} />
 
       {!inChat && (
-        <WhisperFeed
-          whispers={whispers}
-          me={myLocation}
-          onSend={handleWhisper}
-        />
+        <>
+          <button
+            type="button"
+            onClick={() => setWhispersOpen(true)}
+            className="fixed bottom-7 right-5 z-10 flex items-center gap-2 border border-[#1f1f1f] bg-[#111111]/85 px-3.5 py-[7px] font-mono text-[11px] uppercase tracking-[0.08em] text-[#5a5a5a] backdrop-blur-md transition-colors hover:border-[#f0f0f0]/30 hover:text-[#f0f0f0] md:hidden"
+          >
+            Whispers
+            {whispers.length > 0 && (
+              <span className="tabular-nums text-[#3a3a3a]">
+                {whispers.length}
+              </span>
+            )}
+          </button>
+          <WhisperFeed
+            whispers={whispers}
+            me={myLocation}
+            open={whispersOpen}
+            onClose={() => setWhispersOpen(false)}
+            onSend={handleWhisper}
+          />
+        </>
       )}
 
       {notice && (

@@ -13,10 +13,14 @@ function whisperOpacity(createdAt: string, now: number): number {
 export default function WhisperFeed({
   whispers,
   me,
+  open,
+  onClose,
   onSend,
 }: {
   whispers: Whisper[];
   me: { lat: number; lng: number } | null;
+  open: boolean;
+  onClose: () => void;
   onSend: (text: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState("");
@@ -61,17 +65,38 @@ export default function WhisperFeed({
   const hasDraft = draft.trim().length > 0;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-20 flex w-[320px] max-w-full flex-col border-l border-[#1f1f1f] bg-[#0d0d0d]">
-      <header className="flex h-16 shrink-0 items-center border-b border-[#1f1f1f] px-5">
-        <div>
-          <p className="font-mono text-[11px] tracking-[0.1em] text-[#f0f0f0]">
-            WHISPERS
-          </p>
-          <p className="mt-0.5 font-mono text-[10px] tracking-[0.06em] text-[#5a5a5a]">
-            anonymous · fades in 6h
-          </p>
-        </div>
-      </header>
+    <>
+      {open && (
+        <button
+          type="button"
+          aria-label="Close whispers"
+          className="fixed inset-0 z-20 bg-black/60 backdrop-blur-[2px] md:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      <div
+        className={`fixed inset-y-0 right-0 z-30 flex w-[320px] max-w-full flex-col border-l border-[#1f1f1f] bg-[#0d0d0d] transition-transform duration-200 ease-out md:translate-x-0 ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#1f1f1f] px-5">
+          <div>
+            <p className="font-mono text-[11px] tracking-[0.1em] text-[#f0f0f0]">
+              WHISPERS
+            </p>
+            <p className="mt-0.5 font-mono text-[10px] tracking-[0.06em] text-[#5a5a5a]">
+              anonymous · fades in 6h
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="border border-[#2a2a2a] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.06em] text-[#5a5a5a] transition-colors hover:border-[#f0f0f0] hover:text-[#f0f0f0] md:hidden"
+          >
+            Close
+          </button>
+        </header>
 
       <div className="no-scrollbar flex flex-1 flex-col overflow-y-auto px-5 py-6">
         {sorted.length === 0 ? (
@@ -129,5 +154,6 @@ export default function WhisperFeed({
         </button>
       </form>
     </div>
+    </>
   );
 }
