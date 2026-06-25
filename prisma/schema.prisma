@@ -15,7 +15,9 @@ model Presence {
   id       String   @id // client-generated session uuid
   lat      Float // ALREADY privacy-offset coords (raw is never stored)
   lng      Float
+  mood     String? // optional anonymous mood signal, from a fixed allowlist
   busy     Boolean  @default(false) // true while in an active connection
+  connectedTo String? // peer session id while connected; cleared on end/leave
   lastSeen DateTime
 
   @@index([lastSeen])
@@ -31,4 +33,16 @@ model Signal {
   createdAt DateTime @default(now())
 
   @@index([toId])
+}
+
+model Whisper {
+  // Anonymous, ephemeral map messages. Not tied to a session after creation;
+  // reaped once older than WHISPER_TTL_MS. Coordinates are privacy-offset.
+  id        String   @id @default(uuid())
+  lat       Float
+  lng       Float
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
