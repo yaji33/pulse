@@ -7,27 +7,31 @@ import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
 import OnlineIndicator from "./components/OnlineIndicator";
-import { ApiError, join, leave, poll, sendSignal } from "@/lib/api";
+import WhisperFeed from "./components/WhisperFeed";
+import { ApiError, join, leave, poll, sendSignal, sendWhisper } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
-import { POLL_INTERVAL_MS } from "@/lib/presence";
-import { type PeerDot, type SignalMsg } from "@/lib/types";
+import { POLL_INTERVAL_MS, MIN_WHISPER_INTERVAL_MS } from "@/lib/presence";
+import { type PeerDot, type SignalMsg, type Whisper } from "@/lib/types";
 
 type Conn =
   | { kind: "idle" }
-  | { kind: "requesting"; peerId: string }
-  | { kind: "incoming"; peerId: string }
-  | { kind: "connecting"; peerId: string }
-  | { kind: "connected"; peerId: string };
+  | { kind: "requesting"; peerId: string; peerMood: string | null }
+  | { kind: "incoming"; peerId: string; peerMood: string | null }
+  | { kind: "connecting"; peerId: string; peerMood: string | null }
+  | { kind: "connected"; peerId: string; peerMood: string | null };
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
 const REQUEST_TIMEOUT_MS = 30_000;
+const WHISPER_PANEL_W = 320;
+const CHAT_PANEL_W = 360;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionId] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
+  const [whispers, setWhispers] = useState<Whisper[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -35,6 +39,7 @@ export default function Home() {
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
+  const [myMood, setMyMood] = useState<string | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -53,6 +58,7 @@ export default function Home() {
   const peerRef = useRef<PeerSession | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastWhisperAt = useRef(0);
 
   function showNotice(text: string) {
     setNotice(text);
@@ -64,6 +70,10 @@ export default function Home() {
       ...prev,
       { id: msgId.current++, mine, text, at: Date.now() },
     ]);
+  }
+
+  function moodOf(peerId: string): string | null {
+    return peers.find((p) => p.id === peerId)?.mood ?? null;
   }
 
   function teardown(message?: string) {
@@ -78,7 +88,7 @@ export default function Home() {
     if (message) showNotice(message);
   }
 
-  function startPeer(peerId: string, initiator: boolean) {
+  function startPeer(peerId: string, initiator: boolean, peerMood: string | null) {
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
         void sendSignal(sessionId, peerId, type, payload);
@@ -92,7 +102,7 @@ export default function Home() {
         }
       },
       onChannelOpen: () => {
-        setConn({ kind: "connected", peerId });
+        setConn({ kind: "connected", peerId, peerMood });
       },
     });
     peerRef.current = ps;
@@ -135,7 +145,7 @@ export default function Home() {
 
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
-    setConn({ kind: "requesting", peerId });
+    setConn({ kind: "requesting", peerId, peerMood: moodOf(peerId) });
     void sendSignal(sessionId, peerId, "request");
     requestTimer.current = setTimeout(() => {
       if (
@@ -157,10 +167,10 @@ export default function Home() {
 
   function acceptIncoming() {
     if (connRef.current.kind !== "incoming") return;
-    const peerId = connRef.current.peerId;
-    startPeer(peerId, false);
+    const { peerId, peerMood } = connRef.current;
+    startPeer(peerId, false, peerMood);
     void sendSignal(sessionId, peerId, "accept");
-    setConn({ kind: "connecting", peerId });
+    setConn({ kind: "connecting", peerId, peerMood });
   }
 
   function declineIncoming() {
@@ -217,7 +227,11 @@ export default function Home() {
     switch (sig.type) {
       case "request": {
         if (connRef.current.kind === "idle") {
-          setConn({ kind: "incoming", peerId: sig.fromId });
+          setConn({
+            kind: "incoming",
+            peerId: sig.fromId,
+            peerMood: moodOf(sig.fromId),
+          });
         } else {
           void sendSignal(sessionId, sig.fromId, "decline");
         }
@@ -227,8 +241,8 @@ export default function Home() {
         const c = connRef.current;
         if (c.kind === "requesting" && c.peerId === sig.fromId) {
           if (requestTimer.current) clearTimeout(requestTimer.current);
-          startPeer(sig.fromId, true);
-          setConn({ kind: "connecting", peerId: sig.fromId });
+          startPeer(sig.fromId, true, c.peerMood);
+          setConn({ kind: "connecting", peerId: sig.fromId, peerMood: c.peerMood });
         }
         break;
       }
@@ -285,6 +299,7 @@ export default function Home() {
         const data = await poll(sessionId);
         if (!active) return;
         setPeers(data.peers);
+        setWhispers(data.whispers);
         for (const s of data.signals) processSignalRef.current(s);
       } catch (err) {
         if (!active) return;
@@ -323,16 +338,32 @@ export default function Home() {
     const t = setTimeout(() => {
       setSessionEnded(false);
       setPeers([]);
+      setWhispers([]);
       setMyLocation(null);
+      setMyMood(null);
       setPhase("gate");
     }, 2800);
     return () => clearTimeout(t);
   }, [sessionEnded]);
 
-  async function handleReady(lat: number, lng: number) {
-    const offset = await join(sessionId, lat, lng);
+  async function handleReady(lat: number, lng: number, mood: string | null) {
+    const offset = await join(sessionId, lat, lng, mood);
     setMyLocation(offset);
+    setMyMood(mood);
     setPhase("live");
+  }
+
+  async function handleWhisper(text: string) {
+    if (!myLocation) return;
+    if (Date.now() - lastWhisperAt.current < MIN_WHISPER_INTERVAL_MS) {
+      showNotice("You can whisper again in a moment.");
+      throw new Error("cooldown");
+    }
+    const w = await sendWhisper(sessionId, myLocation.lat, myLocation.lng, text);
+    lastWhisperAt.current = Date.now();
+    setWhispers((prev) =>
+      prev.some((x) => x.id === w.id) ? prev : [w, ...prev],
+    );
   }
 
   if (sessionEnded) {
@@ -359,22 +390,37 @@ export default function Home() {
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
+  const myPeerId =
+    conn.kind === "connecting" || conn.kind === "connected"
+      ? conn.peerId
+      : null;
+  const sidePanel = inChat ? CHAT_PANEL_W : WHISPER_PANEL_W;
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-[#080808]">
       <div
         className="absolute inset-y-0 left-0 transition-[right] duration-200"
-        style={{ right: inChat ? 360 : 0 }}
+        style={{ right: sidePanel }}
       >
         <WorldMap
           peers={peers}
           me={myLocation}
+          meMood={myMood}
+          myPeerId={myPeerId}
           onPeerClick={requestConnection}
           canConnect={conn.kind === "idle"}
         />
       </div>
 
       <OnlineIndicator count={peers.length} />
+
+      {!inChat && (
+        <WhisperFeed
+          whispers={whispers}
+          me={myLocation}
+          onSend={handleWhisper}
+        />
+      )}
 
       {notice && (
         <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 border border-[#1f1f1f] bg-[#111111]/85 px-4 py-2 font-mono text-[11px] tracking-[0.06em] text-[#5a5a5a] backdrop-blur-md">
@@ -409,6 +455,11 @@ export default function Home() {
           messages={messages}
           connected={conn.kind === "connected"}
           videoBusy={video !== "none"}
+          peerMood={
+            conn.kind === "connecting" || conn.kind === "connected"
+              ? conn.peerMood
+              : null
+          }
           onSend={(text) => {
             peerRef.current?.sendChat(text);
             addMessage(true, text);

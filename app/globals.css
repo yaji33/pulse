@@ -49,6 +49,14 @@ body {
   animation: me-ring 2.5s ease infinite;
 }
 
+/* The identity ring encodes the user's own mood through pulse speed. */
+.me-ring.mood-warm {
+  animation-duration: 1.8s;
+}
+.me-ring.mood-quiet {
+  animation-duration: 3.6s;
+}
+
 .me-label {
   position: absolute;
   bottom: 100%;
@@ -72,20 +80,101 @@ body {
 }
 
 .stranger-marker {
-  width: 8px;
-  height: 8px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   border: none;
+  background: transparent;
+  cursor: crosshair;
+}
+
+.stranger-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #f0f0f0;
   opacity: 0.7;
-  cursor: crosshair;
   transition: opacity 0.15s ease, box-shadow 0.15s ease;
 }
 
-.stranger-marker:hover {
+.stranger-marker:hover .stranger-dot {
   opacity: 1;
   box-shadow: 0 0 0 4px rgba(240, 240, 240, 0.12);
+}
+
+/* Mood aura: monochrome pulse ring. Warm vs quiet differ only by brightness
+   and pulse speed, so the strict palette holds and color still means "a
+   person". Used on stranger dots to telegraph mood before you tap. */
+.mood-aura {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 240, 240, 0.25);
+  pointer-events: none;
+}
+
+.mood-aura.mood-warm {
+  width: 26px;
+  height: 26px;
+  border-color: rgba(240, 240, 240, 0.65);
+  animation: mood-aura 1.8s ease infinite;
+}
+
+.mood-aura.mood-quiet {
+  width: 22px;
+  height: 22px;
+  border-color: rgba(240, 240, 240, 0.32);
+  animation: mood-aura 3.6s ease infinite;
+}
+
+@keyframes mood-aura {
+  0% {
+    transform: scale(0.7);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* Mood label rendered as a deliberate UI pill, so it never reads as a Mapbox
+   place annotation. */
+.mood-pill {
+  position: absolute;
+  padding: 3px 8px;
+  background: rgba(13, 13, 13, 0.92);
+  border: 1px solid #2a2a2a;
+  border-radius: 1px;
+  font-family: var(--font-mono), monospace;
+  font-size: 9px;
+  text-transform: lowercase;
+  letter-spacing: 0.06em;
+  color: #f0f0f0;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+}
+
+.mood-pill-above {
+  bottom: 100%;
+  margin-bottom: 9px;
+}
+
+.mood-pill-below {
+  top: 100%;
+  margin-top: 9px;
+}
+
+/* The ME pill is always visible; the stranger pill reveals on hover. */
+.stranger-mood {
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+
+.stranger-marker:hover .stranger-mood {
+  opacity: 1;
 }
 
 .online-dot {
@@ -212,6 +301,7 @@ body {
   .globe-fade,
   .fade-up,
   .me-ring,
+  .mood-aura,
   .online-dot,
   .blink-cursor::after,
   .modal-in {

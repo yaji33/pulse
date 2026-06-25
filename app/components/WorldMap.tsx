@@ -2,20 +2,71 @@
 
 import { useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { Map as MapboxMap, Marker } from "mapbox-gl";
+import type { GeoJSONSource, Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
 import { createMeMarkerEl, createStrangerMarkerEl } from "./markers";
 
-const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "pk.eyJ1IjoicHVsc2UtbWFwIiwiYSI6ImNrMDBkZW1vMDAwMDAwMDAifQ.AAAAAAAAAAAAAAAAAAAAAA";
+const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
+const CONNECTIONS_SOURCE = "pulse-connections";
+
+function connectionFeatures(
+  peers: PeerDot[],
+  me: { lat: number; lng: number } | null,
+  myPeerId: string | null,
+) {
+  const byId = new Map(peers.map((p) => [p.id, p]));
+  const seen = new Set<string>();
+  const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+
+  function addLine(
+    a: { lng: number; lat: number },
+    b: { lng: number; lat: number },
+    key: string,
+  ) {
+    if (seen.has(key)) return;
+    seen.add(key);
+    features.push({
+      type: "Feature",
+      properties: {},
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [a.lng, a.lat],
+          [b.lng, b.lat],
+        ],
+      },
+    });
+  }
+
+  for (const p of peers) {
+    if (!p.busy || !p.connectedTo) continue;
+    const other = byId.get(p.connectedTo);
+    if (other) {
+      addLine(p, other, [p.id, p.connectedTo].sort().join(":"));
+    }
+  }
+
+  if (me && myPeerId) {
+    const peer = byId.get(myPeerId);
+    if (peer?.busy) addLine(me, peer, `me:${myPeerId}`);
+  }
+
+  return features;
+}
 
 export default function WorldMap({
   peers,
   me,
+  meMood,
+  myPeerId,
   onPeerClick,
   canConnect,
 }: {
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
+  meMood: string | null;
+  myPeerId: string | null;
   onPeerClick: (id: string) => void;
   canConnect: boolean;
 }) {
@@ -23,10 +74,9 @@ export default function WorldMap({
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const meMarkerRef = useRef<Marker | null>(null);
+  const connectionsReadyRef = useRef(false);
   const [ready, setReady] = useState(false);
 
-  // Marker click handlers are bound once, so read the live click handler +
-  // connectability through refs (synced in an effect, never during render).
   const onPeerClickRef = useRef(onPeerClick);
   const canConnectRef = useRef(canConnect);
   useEffect(() => {
@@ -34,7 +84,6 @@ export default function WorldMap({
     canConnectRef.current = canConnect;
   });
 
-  // Initialise the map once.
   useEffect(() => {
     if (!TOKEN || !containerRef.current) return;
     let cancelled = false;
@@ -53,7 +102,23 @@ export default function WorldMap({
         attributionControl: true,
       });
       map.on("load", () => {
-        if (!cancelled) setReady(true);
+        if (cancelled) return;
+        map.addSource(CONNECTIONS_SOURCE, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: CONNECTIONS_SOURCE,
+          type: "line",
+          source: CONNECTIONS_SOURCE,
+          paint: {
+            "line-color": "rgba(255, 59, 59, 0.35)",
+            "line-width": 1.5,
+            "line-dasharray": [2, 3],
+          },
+        });
+        connectionsReadyRef.current = true;
+        setReady(true);
       });
       mapRef.current = map;
     })();
@@ -70,13 +135,12 @@ export default function WorldMap({
       meMarkerRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
+      connectionsReadyRef.current = false;
       setReady(false);
     };
-    // `me` is only read for the initial center; we don't want to re-init on change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Show / move the user's own "Me" marker.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !me) return;
@@ -86,7 +150,9 @@ export default function WorldMap({
       const mapboxgl = (await import("mapbox-gl")).default;
       if (cancelled) return;
       if (!meMarkerRef.current) {
-        meMarkerRef.current = new mapboxgl.Marker({ element: createMeMarkerEl() })
+        meMarkerRef.current = new mapboxgl.Marker({
+          element: createMeMarkerEl(meMood),
+        })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
       } else {
@@ -97,9 +163,8 @@ export default function WorldMap({
     return () => {
       cancelled = true;
     };
-  }, [me, ready]);
+  }, [me, meMood, ready]);
 
-  // Reconcile stranger markers whenever the peer list changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -115,7 +180,7 @@ export default function WorldMap({
         seen.add(peer.id);
         let marker = markers.get(peer.id);
         if (!marker) {
-          const el = createStrangerMarkerEl();
+          const el = createStrangerMarkerEl(peer.mood);
           el.addEventListener("click", (e) => {
             e.stopPropagation();
             if (canConnectRef.current) onPeerClickRef.current(peer.id);
@@ -124,9 +189,9 @@ export default function WorldMap({
             .setLngLat([peer.lng, peer.lat])
             .addTo(map);
           markers.set(peer.id, marker);
+        } else {
+          marker.setLngLat([peer.lng, peer.lat]);
         }
-        // Busy peers dim out; inline style only when busy so CSS hover still
-        // works for connectable dots.
         marker.getElement().style.opacity = peer.busy ? "0.3" : "";
       }
 
@@ -142,6 +207,17 @@ export default function WorldMap({
       cancelled = true;
     };
   }, [peers, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !connectionsReadyRef.current) return;
+    const source = map.getSource(CONNECTIONS_SOURCE) as GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: connectionFeatures(peers, me, myPeerId),
+    });
+  }, [peers, me, myPeerId, ready]);
 
   return (
     <div className="absolute inset-0">

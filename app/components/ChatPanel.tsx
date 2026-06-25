@@ -21,6 +21,7 @@ export default function ChatPanel({
   messages,
   connected,
   videoBusy,
+  peerMood,
   onSend,
   onStartVideo,
   onEnd,
@@ -28,6 +29,7 @@ export default function ChatPanel({
   messages: ChatMessage[];
   connected: boolean;
   videoBusy: boolean;
+  peerMood: string | null;
   onSend: (text: string) => void;
   onStartVideo: () => void;
   onEnd: () => void;
@@ -59,6 +61,7 @@ export default function ChatPanel({
           {connected ? (
             <p className="mt-0.5 font-mono text-[10px] tracking-[0.06em] text-[#5a5a5a]">
               CONNECTED
+              {peerMood && <span className="text-[#3a3a3a]"> · {peerMood}</span>}
             </p>
           ) : (
             <p className="blink-cursor mt-0.5 font-mono text-[10px] tracking-[0.06em] text-[#5a5a5a]">

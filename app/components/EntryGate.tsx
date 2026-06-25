@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import GlobeCanvas from "./GlobeCanvas";
+import { MOODS } from "@/lib/moods";
 
 export default function EntryGate({
   onReady,
 }: {
-  onReady: (lat: number, lng: number) => void;
+  onReady: (lat: number, lng: number, mood: string | null) => void;
 }) {
   const [status, setStatus] = useState<"idle" | "locating" | "error">("idle");
   const [error, setError] = useState<string>("");
+  const [mood, setMood] = useState<string | null>(null);
 
   function enter() {
     if (!("geolocation" in navigator)) {
@@ -19,7 +21,7 @@ export default function EntryGate({
     }
     setStatus("locating");
     navigator.geolocation.getCurrentPosition(
-      (pos) => onReady(pos.coords.latitude, pos.coords.longitude),
+      (pos) => onReady(pos.coords.latitude, pos.coords.longitude, mood),
       (err) => {
         setStatus("error");
         setError(
@@ -54,7 +56,7 @@ export default function EntryGate({
           style={{
             fontFamily: "var(--font-syne)",
             fontWeight: 700,
-            fontSize: "clamp(40px, 5.5vw, 84px)",
+            fontSize: "clamp(34px, 4.7vw, 72px)",
             lineHeight: 1.05,
             letterSpacing: "0.01em",
             animationDelay: "200ms",
@@ -66,15 +68,41 @@ export default function EntryGate({
         </h1>
 
         <p
-          className="fade-up mt-6 text-[17px] leading-relaxed text-[#5a5a5a]"
+          className="fade-up mt-6 text-[15px] leading-relaxed text-[#5a5a5a]"
           style={{ animationDelay: "380ms" }}
         >
           Drop onto the map. Connect with anyone online, anywhere.
         </p>
 
+        <div className="fade-up mt-9" style={{ animationDelay: "480ms" }}>
+          <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#5a5a5a]">
+            How are you right now?{" "}
+            <span className="text-[#3a3a3a]">optional</span>
+          </p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2 md:justify-start">
+            {MOODS.map((m) => {
+              const selected = mood === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setMood(selected ? null : m.value)}
+                  className={`rounded-[1px] border px-3 py-[6px] text-[12px] tracking-[0.02em] transition-colors duration-[160ms] ${
+                    selected
+                      ? "border-[#f0f0f0]/60 text-[#f0f0f0]"
+                      : "border-[#2a2a2a] text-[#5a5a5a] hover:border-[#5a5a5a] hover:text-[#f0f0f0]"
+                  }`}
+                >
+                  {m.value}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div
           className="fade-up mt-10 flex justify-center md:justify-start"
-          style={{ animationDelay: "520ms" }}
+          style={{ animationDelay: "600ms" }}
         >
           <button
             onClick={enter}
@@ -94,7 +122,7 @@ export default function EntryGate({
 
         <div
           className="fade-up mt-12 space-y-2 font-mono text-[11px] tracking-[0.04em] text-[#3a3a3a]"
-          style={{ animationDelay: "640ms" }}
+          style={{ animationDelay: "720ms" }}
         >
           <p>No sign-up. · No history. · Closes when you leave.</p>
           <p>Your dot appears 1–3 km from your real location.</p>
