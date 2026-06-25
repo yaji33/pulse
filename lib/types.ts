@@ -15,6 +15,8 @@ export interface PeerDot {
   lat: number;
   lng: number;
   busy: boolean;
+  connectedTo: string | null;
+  mood: string | null;
 }
 
 export interface SignalMsg {
@@ -26,7 +28,16 @@ export interface SignalMsg {
   createdAt: string;
 }
 
+export interface Whisper {
+  id: string;
+  lat: number;
+  lng: number;
+  text: string;
+  createdAt: string;
+}
+
 export interface PollResponse {
   peers: PeerDot[];
   signals: SignalMsg[];
+  whispers: Whisper[];
 }
